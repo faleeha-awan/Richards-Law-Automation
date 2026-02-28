@@ -1,0 +1,3 @@
+# Environment variables (NEVER commit these!)
+.env
+

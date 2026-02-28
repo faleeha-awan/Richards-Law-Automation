@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Richards & Law — Verify Extracted Data</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f4f8; min-height: 100vh; }
+
+    .topbar {
+      background: #1a3c5e; color: white;
+      padding: 16px 32px; display: flex; align-items: center;
+    }
+    .topbar h1 { font-size: 20px; font-weight: 600; }
+    .topbar p  { font-size: 13px; opacity: 0.7; margin-top: 2px; }
+
+    .container { max-width: 750px; margin: 40px auto; padding: 0 16px 60px; }
+
+    .alert {
+      padding: 14px 18px; border-radius: 8px; margin-bottom: 24px;
+      font-size: 14px; display: flex; align-items: flex-start; gap: 10px;
+    }
+    .alert.warning {
+      background: #fff8e1; border: 1px solid #ffe082; color: #7a5c00;
+    }
+
+    .card {
+      background: white; border-radius: 12px;
+      box-shadow: 0 2px 16px rgba(0,0,0,0.08); margin-bottom: 20px;
+      overflow: hidden;
+    }
+    .card-header {
+      background: #f8fafc; padding: 16px 24px;
+      border-bottom: 1px solid #e8ecf0;
+    }
+    .card-header h2 { font-size: 16px; color: #1a3c5e; font-weight: 600; }
+    .card-body { padding: 24px; }
+
+    .field-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+    }
+    .field-grid .full-width { grid-column: 1 / -1; }
+
+    .form-group { display: flex; flex-direction: column; gap: 5px; }
+    label { font-size: 12px; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    input, textarea, select {
+      padding: 9px 12px; border: 1px solid #d0d7de;
+      border-radius: 6px; font-size: 14px; color: #333;
+      background: white; transition: border-color 0.2s; font-family: inherit;
+    }
+    input:focus, textarea:focus, select:focus {
+      outline: none; border-color: #1a3c5e;
+    }
+    textarea { resize: vertical; min-height: 80px; }
+
+    .derived-field {
+      padding: 9px 12px; background: #f0f4f8; border: 1px solid #d0d7de;
+      border-radius: 6px; font-size: 14px; color: #555; font-style: italic;
+    }
+
+    .btn-row { display: flex; gap: 12px; margin-top: 8px; }
+
+    .btn {
+      flex: 1; padding: 14px; border: none; border-radius: 8px;
+      font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+    }
+    .btn-approve { background: #27ae60; color: white; }
+    .btn-approve:hover { background: #219150; }
+    .btn-approve:disabled { background: #aaa; cursor: not-allowed; }
+    .btn-cancel { background: #f0f4f8; color: #555; border: 1px solid #d0d7de; }
+    .btn-cancel:hover { background: #e2e8f0; }
+
+    .status-box {
+      display: none; padding: 16px 20px; border-radius: 8px;
+      font-size: 14px; margin-top: 16px;
+    }
+    .status-box.loading { background: #e8f0fe; color: #1a3c5e; border: 1px solid #b3c9f0; }
+    .status-box.success { background: #e8f8f0; color: #1a7a46; border: 1px solid #a3d9bc; }
+    .status-box.error   { background: #fde8e8; color: #c0392b; border: 1px solid #f0b3b3; }
+
+    .spinner {
+      display: inline-block; width: 16px; height: 16px;
+      border: 2px solid #1a3c5e; border-top-color: transparent;
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+      vertical-align: middle; margin-right: 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .loading-state { text-align: center; padding: 60px 20px; color: #888; }
+  </style>
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <h1>Richards & Law — Data Verification</h1>
+    <p>Review AI-extracted data before saving to Clio</p>
+  </div>
+</div>
+
+<div class="container">
+  <div id="loadingState" class="loading-state">
+    <div style="font-size:32px;margin-bottom:12px;">⏳</div>
+    Loading extracted data...
+  </div>
+
+  <div id="mainContent" style="display:none;">
+    <div class="alert warning">
+      ⚠️ <div>
+        <strong>Review before approving.</strong>
+        This data was extracted automatically by AI. Please check each field carefully — 
+        edit anything that looks incorrect, then click Approve to save to Clio.
+      </div>
+    </div>
+
+    <!-- Client Info -->
+    <div class="card">
+      <div class="card-header"><h2>👤 Client Information</h2></div>
+      <div class="card-body">
+        <div class="field-grid">
+          <div class="form-group">
+            <label>First Name</label>
+            <input type="text" id="client_first_name"/>
+          </div>
+          <div class="form-group">
+            <label>Last Name</label>
+            <input type="text" id="client_last_name"/>
+          </div>
+          <div class="form-group">
+            <label>Vehicle Plate</label>
+            <input type="text" id="client_plate"/>
+          </div>
+          <div class="form-group">
+            <label>Sex (M/F)</label>
+            <select id="client_sex">
+              <option value="M">M — Male (his/he)</option>
+              <option value="F">F — Female (her/she)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Accident Info -->
+    <div class="card">
+      <div class="card-header"><h2>🚗 Accident Details</h2></div>
+      <div class="card-body">
+        <div class="field-grid">
+          <div class="form-group">
+            <label>Accident Date</label>
+            <input type="text" id="accident_date" placeholder="YYYY-MM-DD"/>
+          </div>
+          <div class="form-group">
+            <label>Report Number</label>
+            <input type="text" id="accident_report_number"/>
+          </div>
+          <div class="form-group full-width">
+            <label>Accident Location</label>
+            <input type="text" id="accident_location"/>
+          </div>
+          <div class="form-group full-width">
+            <label>Accident Description (Officer Notes)</label>
+            <textarea id="accident_description"></textarea>
+          </div>
+          <div class="form-group">
+            <label>Number of Injured</label>
+            <input type="text" id="num_injured"/>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Defendant Info -->
+    <div class="card">
+      <div class="card-header"><h2>⚖️ Defendant Information</h2></div>
+      <div class="card-body">
+        <div class="field-grid">
+          <div class="form-group">
+            <label>First Name</label>
+            <input type="text" id="defendant_first_name"/>
+          </div>
+          <div class="form-group">
+            <label>Last Name</label>
+            <input type="text" id="defendant_last_name"/>
+          </div>
+          <div class="form-group">
+            <label>Vehicle Plate</label>
+            <input type="text" id="defendant_plate"/>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Derived Fields (read-only) -->
+    <div class="card">
+      <div class="card-header"><h2>📅 Auto-Calculated Fields</h2></div>
+      <div class="card-body">
+        <div class="field-grid">
+          <div class="form-group">
+            <label>Statute of Limitations Date</label>
+            <div class="derived-field" id="sol_date_display">—</div>
+          </div>
+          <div class="form-group">
+            <label>Client Pronoun (from sex)</label>
+            <div class="derived-field" id="pronoun_display">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-cancel" onclick="window.close()">Cancel</button>
+      <button class="btn btn-approve" id="approveBtn" onclick="approve()">
+        ✅ Approve &amp; Save to Clio
+      </button>
+    </div>
+
+    <div class="status-box" id="statusBox"></div>
+  </div>
+</div>
+
+<script>
+  // Extract token from URL path: /verify/TOKEN
+  const token = window.location.pathname.split('/').pop();
+  let matterId = null;
+
+  // ── Load extracted data ──
+  async function loadData() {
+    try {
+      const res = await fetch(`/verify-data/${token}`);
+      if (!res.ok) {
+        const err = await res.json();
+        document.getElementById('loadingState').innerHTML =
+          `<div style="color:#c0392b;font-size:32px;margin-bottom:12px">❌</div>${err.error}`;
+        return;
+      }
+
+      const { extractedData: d, matterId: mid } = await res.json();
+      matterId = mid;
+
+      // Populate all fields
+      setValue('client_first_name', d.client_first_name);
+      setValue('client_last_name',  d.client_last_name);
+      setValue('client_plate',      d.client_plate);
+      setSelect('client_sex',       d.client_sex);
+
+      setValue('accident_date',         d.accident_date);
+      setValue('accident_report_number',d.accident_report_number);
+      setValue('accident_location',     d.accident_location);
+      setValue('accident_description',  d.accident_description);
+      setValue('num_injured',           d.num_injured);
+
+      setValue('defendant_first_name', d.defendant_first_name);
+      setValue('defendant_last_name',  d.defendant_last_name);
+      setValue('defendant_plate',      d.defendant_plate);
+
+      // Derived fields display
+      document.getElementById('sol_date_display').textContent =
+        d.statute_of_limitations_date || 'Will be calculated on approve';
+      document.getElementById('pronoun_display').textContent =
+        d.client_pronoun ? `${d.client_pronoun} / ${d.client_pronoun_subject}` : '—';
+
+      // Show content
+      document.getElementById('loadingState').style.display = 'none';
+      document.getElementById('mainContent').style.display = 'block';
+
+    } catch (err) {
+      document.getElementById('loadingState').innerHTML =
+        `<div style="color:#c0392b">❌ Failed to load data: ${err.message}</div>`;
+    }
+  }
+
+  function setValue(id, val) {
+    const el = document.getElementById(id);
+    if (el) el.value = val ?? '';
+  }
+
+  function setSelect(id, val) {
+    const el = document.getElementById(id);
+    if (el && val) el.value = val.toUpperCase().trim();
+  }
+
+  // ── Approve handler ──
+  async function approve() {
+    const btn = document.getElementById('approveBtn');
+    const statusBox = document.getElementById('statusBox');
+
+    // Build edited data from form
+    const editedData = {
+      client_first_name:      document.getElementById('client_first_name').value,
+      client_last_name:       document.getElementById('client_last_name').value,
+      client_plate:           document.getElementById('client_plate').value,
+      client_sex:             document.getElementById('client_sex').value,
+      accident_date:          document.getElementById('accident_date').value,
+      accident_report_number: document.getElementById('accident_report_number').value,
+      accident_location:      document.getElementById('accident_location').value,
+      accident_description:   document.getElementById('accident_description').value,
+      num_injured:            parseInt(document.getElementById('num_injured').value) || 0,
+      defendant_first_name:   document.getElementById('defendant_first_name').value,
+      defendant_last_name:    document.getElementById('defendant_last_name').value,
+      defendant_plate:        document.getElementById('defendant_plate').value,
+    };
+
+    btn.disabled = true;
+    statusBox.style.display = 'block';
+    statusBox.className = 'status-box loading';
+    statusBox.innerHTML = '<span class="spinner"></span> Saving to Clio — generating retainer, calendar event, and client email...';
+
+    try {
+      const res = await fetch(`/approve/${token}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ extractedData: editedData }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        statusBox.className = 'status-box success';
+        statusBox.innerHTML = `
+          ✅ <strong>All done!</strong><br/><br/>
+          • Matter custom fields updated in Clio<br/>
+          • Retainer Agreement generated &amp; stored in Clio<br/>
+          • Statute of Limitations calendared for the attorney<br/>
+          • Personalized email sent to the client with retainer attached
+        `;
+        btn.textContent = '✅ Completed';
+      } else {
+        throw new Error(data.error || 'Unknown error');
+      }
+    } catch (err) {
+      statusBox.className = 'status-box error';
+      statusBox.innerHTML = `❌ <strong>Error:</strong> ${err.message}`;
+      btn.disabled = false;
+    }
+  }
+
+  loadData();
+</script>
+</body>
+</html>
