@@ -45,9 +45,17 @@ async function getCustomFields() {
 async function getMatter(matterId) {
   const res = await clioRequest(
     'GET',
-    `/matters/${matterId}.json?fields=id,display_number,description,custom_field_values{id,field_name,value,custom_field},client{id,name,email_addresses},responsible_attorney{id,name}`
+    `/matters/${matterId}.json?fields=id,display_number,custom_field_values{id,field_name,value,custom_field},client{id,name},responsible_attorney{id,name}`
   );
   return res.data;
+}
+
+async function getContactEmail(contactId) {
+  const res = await clioRequest(
+    'GET',
+    `/contacts/${contactId}.json?fields=id,name,email_addresses{id,address,name}`
+  );
+  return res.data?.email_addresses?.[0]?.address || null;
 }
 
 // ── Search matters to find one by client name ──────
@@ -63,12 +71,25 @@ async function findMatterByClientName(firstName, lastName) {
 // ── Update matter custom fields ────────────────────
 // customFieldUpdates = [{ id: customFieldId, value: "..." }, ...]
 async function updateMatterCustomFields(matterId, customFieldUpdates) {
+  // First get the matter to find existing custom field value IDs
+  const matter = await clioRequest('GET', `/matters/${matterId}.json?fields=custom_field_values{id,custom_field}`);
+  
+  // Build a map of customFieldId -> existing value record ID
+  const existingValueMap = {};
+  matter.data.custom_field_values.forEach(v => {
+    existingValueMap[v.custom_field.id] = v.id;
+  });
+
   const payload = {
     data: {
-      custom_field_values: customFieldUpdates.map(({ id, value }) => ({
-        custom_field: { id },
-        value,
-      })),
+      custom_field_values: customFieldUpdates.map(({ id, value }) => {
+        const entry = { custom_field: { id }, value };
+        // If a value record already exists, include its ID to update it
+        if (existingValueMap[id]) {
+          entry.id = existingValueMap[id];
+        }
+        return entry;
+      }),
     },
   };
 
@@ -82,7 +103,9 @@ async function generateRetainerDocument(matterId, templateId) {
   const payload = {
     data: {
       matter: { id: matterId },
-      template: { id: templateId },
+      document_template: { id: templateId },
+      filename: `Retainer_Agreement_${matterId}.pdf`,
+      formats: ['pdf'],
     },
   };
 
@@ -99,21 +122,38 @@ async function getDocumentTemplates() {
 
 // ── Create a calendar entry (SOL date) ────────────
 async function createCalendarEntry(matterId, responsibleAttorneyId, solDate, clientName) {
-  const payload = {
-    data: {
-      summary: `⚠️ Statute of Limitations — ${clientName}`,
-      description: `Statute of Limitations deadline for matter. File by this date or the claim is barred.`,
-      start_at: `${solDate}T09:00:00Z`,
-      end_at: `${solDate}T10:00:00Z`,
-      all_day: true,
-      matter: { id: matterId },
-      attendees: [{ id: responsibleAttorneyId, type: 'User' }],
-    },
-  };
+  // Get the first available calendar
+  /*
+  const calendarsRes = await clioRequest('GET', '/calendars.json?fields=id,name');
+  const userCalendar = calendarsRes.data[0];
+
+  if (!userCalendar) {
+    console.warn('⚠️ No calendar found — skipping calendar entry');
+    return null;
+  }
+
+  console.log('Using calendar:', userCalendar.id, userCalendar.name);
+
+ const payload = {
+  data: {
+    summary: `⚠️ Statute of Limitations — ${clientName}`,
+    description: `Statute of Limitations deadline for matter. File by this date or the claim is barred.`,
+    start_at: `${solDate}T00:00:00+00:00`,
+    end_at: `${solDate}T23:59:59+00:00`,
+    all_day: true,
+    matter: { id: matterId },
+    calendar_owner: { id: responsibleAttorneyId },
+  },
+};
 
   const res = await clioRequest('POST', '/calendar_entries.json', payload);
-  console.log('✅ SOL calendar entry created');
+  console.log('✅ SOL calendar entry created, ID:', res.data?.id);
   return res.data;
+  */
+
+  // TODO: Fix Clio calendar API - temporarily disabled
+  console.log(`⚠️ Calendar entry skipped — SOL date ${solDate} for ${clientName} (fix pending)`);
+  return null;
 }
 
 // ── Get a document's download URL ─────────────────
@@ -148,21 +188,23 @@ async function sendClioEmail(matterId, contactId, subject, body, documentId = nu
 
 // ── Upload a file (e.g. police report PDF) to a Matter ──
 async function uploadDocumentToMatter(matterId, filePath, fileName) {
+  console.log('uploadDocumentToMatter called with:', { matterId, filePath, fileName });
+
   const fs = require('fs');
   const FormData = require('form-data');
 
   const token = await getValidAccessToken();
 
   // Step 1: Create the document record in Clio
-  const createRes = await clioRequest('POST', '/documents.json', {
-    data: {
-      name: fileName,
-      matter: { id: matterId },
-      parent: { id: matterId, type: 'Matter' },
-    },
-  });
+  const createRes = await clioRequest('POST', '/documents.json?fields=id,name,latest_document_version{put_url}', {
+  data: {
+    name: fileName,
+    parent: { id: matterId, type: 'Matter' },
+  },
+});
 
   const documentId = createRes.data.id;
+  const versionUuid = createRes.data.latest_document_version?.uuid;
   const putUrl = createRes.data.latest_document_version?.put_url;
 
   if (!putUrl) {
@@ -170,15 +212,20 @@ async function uploadDocumentToMatter(matterId, filePath, fileName) {
     return createRes.data;
   }
 
-  // Step 2: Upload the actual file bytes to the put_url (S3)
-  const fileBuffer = fs.readFileSync(filePath);
-  await axios.put(putUrl, fileBuffer, {
-    headers: { 'Content-Type': 'application/pdf' },
-  });
+  // Step 2: Upload file bytes to S3
+const fileBuffer = fs.readFileSync(filePath);
+await axios.put(putUrl, fileBuffer, {
+  headers: { 
+    'Content-Type': 'application/pdf',
+    'x-amz-server-side-encryption': 'AES256',
+  },
+});
 
   // Step 3: Mark the upload as complete
   await clioRequest('PATCH', `/documents/${documentId}.json`, {
-    data: { fully_uploaded: true },
+    data: { fully_uploaded: true, 
+      latest_document_version: { uuid: versionUuid },
+    },
   });
 
   console.log(`✅ Police report PDF uploaded to Clio Matter as document ID: ${documentId}`);
@@ -189,6 +236,7 @@ module.exports = {
   clioRequest,
   getCustomFields,
   getMatter,
+  getContactEmail,
   findMatterByClientName,
   updateMatterCustomFields,
   generateRetainerDocument,

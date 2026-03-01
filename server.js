@@ -121,11 +121,12 @@ app.post('/upload', upload.single('police_report'), async (req, res) => {
       extractedData,
       matterId,
       filePath: req.file.path,
+      originalName: req.file.originalname,
       createdAt: Date.now(),
     };
 
     // 4. Send verification email to paralegal
-    await emailSvc.sendVerificationEmail(token, extractedData, matterId);
+   await emailSvc.sendVerificationEmail(extractedData, token, matterId);
 
     res.json({
       success: true,
@@ -154,123 +155,163 @@ app.get('/matters', async (req, res) => {
 
 // GET /verify/:token — Show verification page (served from public/verify.html)
 app.get('/verify/:token', (req, res) => {
-  const { token } = req.params;
-  const pending = pendingVerifications[token];
-
-  if (!pending) {
-    return res.status(404).send('<h2>Verification link not found or already used.</h2>');
-  }
-
-  // Check 24-hour expiry
-  const AGE_LIMIT = 24 * 60 * 60 * 1000;
-  if (Date.now() - pending.createdAt > AGE_LIMIT) {
-    delete pendingVerifications[token];
-    return res.status(410).send('<h2>This verification link has expired.</h2>');
-  }
-
+  const pending = pendingVerifications[req.params.token];
+  if (!pending) return res.status(404).send('<h2>Link not found or already used.</h2>');
   res.sendFile(path.join(__dirname, 'public', 'verify.html'));
 });
 
-// GET /verify/:token/data — Return extracted data as JSON for the verify page
-app.get('/verify/:token/data', (req, res) => {
-  const { token } = req.params;
-  const pending = pendingVerifications[token];
-  if (!pending) return res.status(404).json({ error: 'Not found' });
-  res.json(pending);
+//for checking my user id
+app.get('/debug/me', async (req, res) => {
+  if (!clioAuth.isAuthenticated()) return res.status(401).json({ error: 'Not authenticated' });
+  try {
+    const result = await clioService.clioRequest('GET', '/users/who_am_i.json?fields=id,name,email');
+    res.json(result.data);
+  } catch (err) {
+    res.status(500).json({ error: err.response?.data || err.message });
+  }
 });
 
-// POST /verify/:token/approve — Paralegal approved; write to Clio and trigger everything
-app.post('/verify/:token/approve', async (req, res) => {
-  const { token } = req.params;
-  const pending = pendingVerifications[token];
+//GET calendar of responsible attorney
+app.get('/debug/calendars', async (req, res) => {
+  if (!clioAuth.isAuthenticated()) return res.status(401).json({ error: 'Not authenticated' });
+  try {
+    const result = await clioService.clioRequest('GET', '/calendars.json?fields=id,name');
+    res.json(result.data);
+  } catch (err) {
+    res.status(500).json({ error: err.response?.data || err.message });
+  }
+});
 
-  if (!pending) {
-    return res.status(404).json({ error: 'Verification session not found or already used.' });
+// GET /verify/:token/data — Return extracted data as JSON for the verify page
+app.get('/verify-data/:token', (req, res) => {
+  const pending = pendingVerifications[req.params.token];
+  if (!pending) return res.status(404).json({ error: 'Link not found or already used.' });
+
+  const AGE_LIMIT = 24 * 60 * 60 * 1000;
+  if (Date.now() - pending.createdAt > AGE_LIMIT) {
+    delete pendingVerifications[req.params.token];
+    return res.status(410).json({ error: 'This link has expired.' });
   }
 
-  // Allow paralegal edits from the form to override extracted data
-  const data = { ...pending.extractedData, ...req.body };
+  const d = pending.extractedData;
+  const defParts = (d.defendantName || '').split(' ');
+
+  res.json({
+    matterId: pending.matterId,
+    extractedData: {
+      client_first_name:      d.clientFirstName,
+      client_last_name:       d.clientLastName,
+      client_sex:             d.clientSex,
+      client_plate:           d.clientVehiclePlate,
+      accident_date:          d.accidentDate,
+      accident_location:      d.accidentLocation,
+      accident_description:   d.accidentDescription,
+      accident_report_number: d.accidentReportNumber,
+      num_injured:            d.numberOfInjured,
+      defendant_first_name:   defParts[0] || '',
+      defendant_last_name:    defParts.slice(1).join(' ') || '',
+      defendant_plate:        d.defendantVehiclePlate,
+    },
+  });
+});
+
+// POST /approve/:token — Paralegal approved, write everything to Clio
+app.post('/approve/:token', async (req, res) => {
+  const { token } = req.params;
+  const pending = pendingVerifications[token];
+  if (!pending) return res.status(404).json({ error: 'Session not found or already used.' });
+
+  const d = req.body.extractedData;
   const { matterId } = pending;
 
   try {
-    // ── 1. Get custom field IDs from Clio ────────────
+    const data = {
+      clientFirstName:       d.client_first_name,
+      clientLastName:        d.client_last_name,
+      clientSex:             d.client_sex,
+      clientVehiclePlate:    d.client_plate,
+      accidentDate:          d.accident_date,
+      accidentLocation:      d.accident_location,
+      accidentDescription:   d.accident_description,
+      accidentReportNumber:  d.accident_report_number,
+      numberOfInjured:       d.num_injured,
+      defendantName:         `${d.defendant_first_name} ${d.defendant_last_name}`.trim(),
+      defendantVehiclePlate: d.defendant_plate,
+    };
+
+    // 1. Get custom field IDs
     const customFields = await clioService.getCustomFields();
     const fieldMap = {};
     customFields.forEach(f => { fieldMap[f.name] = f.id; });
 
-    // ── 2. Calculate derived values ──────────────────
-    const solDate  = helpers.calculateSOLDate(data.accidentDate);
+    // 2. Calculate SOL date and pronouns
+    const solDate  = helpers.calculateStatuteOfLimitations(data.accidentDate);
     const pronouns = helpers.getPronounsFromSex(data.clientSex);
 
-    // ── 3. Build custom field updates payload ────────
+    // 3. Update Clio Matter custom fields
     const fieldUpdates = [
-      { id: fieldMap['Accident Date'],             value: data.accidentDate },
-      { id: fieldMap['Accident Location'],         value: data.accidentLocation },
-      { id: fieldMap['Defendant Name'],            value: data.defendantName },
-      { id: fieldMap['Client Vehicle Plate'],      value: data.clientVehiclePlate },
-      { id: fieldMap['Number of Injured'],         value: String(data.numberOfInjured) },
-      { id: fieldMap['Accident Description'],      value: data.accidentDescription },
+      { id: fieldMap['Accident Date'],               value: data.accidentDate },
+      { id: fieldMap['Accident Location'],           value: data.accidentLocation },
+      { id: fieldMap['Defendant Name'],              value: data.defendantName },
+      { id: fieldMap['Client Vehicle Plate'],        value: data.clientVehiclePlate },
+      { id: fieldMap['Number of Injured'],           value: String(data.numberOfInjured) },
+      { id: fieldMap['Accident Description'],        value: data.accidentDescription },
       { id: fieldMap['Statute of Limitations Date'], value: solDate },
-      { id: fieldMap['Accident Report Number'],    value: data.accidentReportNumber },
-      { id: fieldMap['Client Pronoun'],            value: pronouns.pronoun },
-      { id: fieldMap['Client Pronoun Subject'],    value: pronouns.pronounSubject },
-    ].filter(f => f.id); // Only include fields that exist in Clio
+      { id: fieldMap['Accident Report Number'],      value: data.accidentReportNumber },
+      { id: fieldMap['Client Pronoun'],              value: pronouns.pronoun },
+      { id: fieldMap['Client Pronoun Subject'],      value: pronouns.pronounSubject },
+    ].filter(f => f.id);
 
-    // ── 4. Update Clio Matter ────────────────────────
     await clioService.updateMatterCustomFields(matterId, fieldUpdates);
 
-    // ── 5. Get matter + attorney details ────────────
+    // 4. Get matter details
     const matter = await clioService.getMatter(matterId);
     const clientName = matter.client?.name || `${data.clientFirstName} ${data.clientLastName}`;
     const responsibleAttorneyId = matter.responsible_attorney?.id;
+    const clientEmail = await clioService.getContactEmail(matter.client.id);
+    console.log('Client email:', clientEmail);
 
-    // ── 6. Trigger Clio document automation ─────────
+    // 5. Generate retainer document
     const templates = await clioService.getDocumentTemplates();
-    // Just grab the first template — we only have one
     const retainerTemplate = templates[0];
-
-    if (!retainerTemplate) {
-      throw new Error('Retainer template not found in Clio. Please upload it first.');
-    }
-
+    if (!retainerTemplate) throw new Error('No retainer template found in Clio.');
+    console.log('Generating retainer for matter:', matterId, 'template:', retainerTemplate.id);
     const docResult = await clioService.generateRetainerDocument(matterId, retainerTemplate.id);
+    console.log('Retainer result:', JSON.stringify(docResult));
     const documentId = docResult?.document?.id;
 
-    // ── 7. Create SOL calendar event ────────────────
+    // 6. Create SOL calendar entry
+    console.log('Creating calendar entry. Attorney ID:', responsibleAttorneyId, 'SOL date:', solDate);
     if (responsibleAttorneyId) {
       await clioService.createCalendarEntry(matterId, responsibleAttorneyId, solDate, clientName);
     }
+    console.log('Calendar entry done, sending email now...');
 
-    // ── 8. Send personalized client email via Clio ──
-    const bookingLink = helpers.getSeasonalBookingLink();
-    const clientContact = matter.client;
+    // 7. Send personalized client email via Gmail
+const bookingLink = helpers.getSeasonalBookingLink();
+console.log('Sending client email to:', clientEmail);
+console.log('Client email addresses:', JSON.stringify(matter.client?.email_addresses));
+if (clientEmail) {
+  await emailSvc.sendClientEmail(
+    clientEmail,
+    clientName,
+    data,
+    solDate,
+    bookingLink,
+    matterId
+  );
+} else {
+  console.warn('⚠️ No client email found — skipping client email');
+}
 
-    const emailSubject = `Your Legal Representation — Richards & Law`;
-    const emailBody = buildClientEmail(data, clientName, solDate, bookingLink);
-
-    await clioService.sendClioEmail(
-      matterId,
-      clientContact.id,
-      emailSubject,
-      emailBody,
-      documentId
-    );
-
-    // ── 9. Upload original police report PDF to the Clio Matter ───
-    if (pending.filePath && fs.existsSync(pending.filePath)) {
-      const reportFileName = `Police_Report_${data.clientLastName}_${data.accidentDate.replace(/\//g, '-')}.pdf`;
-      await clioService.uploadDocumentToMatter(matterId, pending.filePath, reportFileName);
-      // Clean up local temp file after upload
+    // 8. Upload original police report PDF to Clio Matter
+   if (pending.filePath && fs.existsSync(pending.filePath)) {
+      await clioService.uploadDocumentToMatter(matterId, pending.filePath, pending.originalName);
       fs.unlinkSync(pending.filePath);
     }
     delete pendingVerifications[token];
 
-    res.json({
-      success: true,
-      message: 'All done! Clio updated, retainer generated, calendar set, client emailed.',
-      solDate,
-      documentId,
-    });
+    res.json({ success: true, solDate, documentId });
 
   } catch (err) {
     console.error('Approval error:', err.message);
