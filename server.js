@@ -317,10 +317,8 @@ app.post('/approve/:token', async (req, res) => {
     } else {
   console.warn('⚠️ No client email found — skipping client email');
 }
-
-    // 8. Upload original police report PDF to Clio Matter
-   if (pending.filePath && fs.existsSync(pending.filePath)) {
-      await clioService.uploadDocumentToMatter(matterId, pending.filePath, pending.originalName);
+   // Clean up temp file
+    if (pending.filePath && fs.existsSync(pending.filePath)) {
       fs.unlinkSync(pending.filePath);
     }
     delete pendingVerifications[token];

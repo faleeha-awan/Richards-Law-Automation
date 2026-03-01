@@ -113,10 +113,10 @@ async function generateRetainerDocument(matterId, templateId) {
   console.log('✅ Document automation triggered');
 
   // Wait for Clio to generate the document
-  await new Promise(resolve => setTimeout(resolve, 5000));
+  await new Promise(resolve => setTimeout(resolve, 8000));
 
   // Fetch the most recently created document in this matter
-  const docsRes = await clioRequest('GET', `/documents.json?fields=id,name,created_at&matter_id=${matterId}&order=created_at(desc)&limit=5`);
+  const docsRes = await clioRequest('GET', `/documents.json?fields=id,name,created_at&filter[matter_id]=${matterId}&order=created_at(desc)&limit=10`);
   const docs = docsRes.data;
   
   console.log('Recent matter documents:', JSON.stringify(docs?.map(d => ({ id: d.id, name: d.name }))));
@@ -227,51 +227,6 @@ async function sendClioEmail(matterId, contactId, subject, body, documentId = nu
   return res.data;
 }
 
-// ── Upload a file (e.g. police report PDF) to a Matter ──
-async function uploadDocumentToMatter(matterId, filePath, fileName) {
-  console.log('uploadDocumentToMatter called with:', { matterId, filePath, fileName });
-
-  const fs = require('fs');
-  const FormData = require('form-data');
-
-  const token = await getValidAccessToken();
-
-  // Step 1: Create the document record in Clio
-  const createRes = await clioRequest('POST', '/documents.json?fields=id,name,latest_document_version{put_url}', {
-  data: {
-    name: fileName,
-    parent: { id: matterId, type: 'Matter' },
-  },
-});
-
-  const documentId = createRes.data.id;
-  const versionUuid = createRes.data.latest_document_version?.uuid;
-  const putUrl = createRes.data.latest_document_version?.put_url;
-
-  if (!putUrl) {
-    console.warn('⚠️ No put_url returned from Clio for document upload');
-    return createRes.data;
-  }
-
-  // Step 2: Upload file bytes to S3
-const fileBuffer = fs.readFileSync(filePath);
-await axios.put(putUrl, fileBuffer, {
-  headers: { 
-    'Content-Type': 'application/pdf',
-    'x-amz-server-side-encryption': 'AES256',
-  },
-});
-
-  // Step 3: Mark the upload as complete
-  await clioRequest('PATCH', `/documents/${documentId}.json`, {
-    data: { fully_uploaded: true, 
-      latest_document_version: { uuid: versionUuid },
-    },
-  });
-
-  console.log(`✅ Police report PDF uploaded to Clio Matter as document ID: ${documentId}`);
-  return createRes.data;
-}
 
 module.exports = {
   clioRequest,
@@ -285,5 +240,4 @@ module.exports = {
   createCalendarEntry,
   downloadDocument,
   sendClioEmail,
-  uploadDocumentToMatter,
 };
