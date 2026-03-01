@@ -280,6 +280,19 @@ app.post('/approve/:token', async (req, res) => {
     console.log('Retainer result:', JSON.stringify(docResult));
     const documentId = docResult?.document?.id;
 
+    // Download the generated retainer to attach to email
+    let retainerAttachment = null;
+    if (documentId) {
+    try {
+      // Wait a moment for Clio to finish generating
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      retainerAttachment = await clioService.downloadDocument(documentId);
+      console.log('✅ Retainer downloaded for email attachment');
+    } catch (dlErr) {
+      console.warn('⚠️ Could not download retainer:', dlErr.message);
+    }
+    }
+
     // 6. Create SOL calendar entry
     console.log('Creating calendar entry. Attorney ID:', responsibleAttorneyId, 'SOL date:', solDate);
     if (responsibleAttorneyId) {
@@ -288,19 +301,20 @@ app.post('/approve/:token', async (req, res) => {
     console.log('Calendar entry done, sending email now...');
 
     // 7. Send personalized client email via Gmail
-const bookingLink = helpers.getSeasonalBookingLink();
-console.log('Sending client email to:', clientEmail);
-console.log('Client email addresses:', JSON.stringify(matter.client?.email_addresses));
-if (clientEmail) {
-  await emailSvc.sendClientEmail(
-    clientEmail,
-    clientName,
-    data,
-    solDate,
-    bookingLink,
-    matterId
-  );
-} else {
+    const bookingLink = helpers.getSeasonalBookingLink();
+    console.log('Sending client email to:', clientEmail);
+    console.log('Client email addresses:', JSON.stringify(matter.client?.email_addresses));
+    if (clientEmail) {
+      await emailSvc.sendClientEmail(
+      clientEmail,
+      clientName,
+      data,
+      solDate,
+      bookingLink,
+      matterId,
+      retainerAttachment
+      );
+    } else {
   console.warn('⚠️ No client email found — skipping client email');
 }
 

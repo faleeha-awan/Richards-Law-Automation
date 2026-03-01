@@ -99,69 +99,194 @@ async function sendVerificationEmail(extractedData, verificationToken, matterId)
 }
 
 //Email to the client with retainer agreement + booking link
-async function sendClientEmail(clientEmail, clientName, extractedData, solDate, bookingLink, matterId) {
+async function sendClientEmail(clientEmail, clientName, extractedData, solDate, bookingLink, matterId, retainerAttachment) {
   const transporter = createTransporter();
   const firstName = clientName.split(' ')[0];
 
-  const htmlBody = `
+  const emailContent = await generatePersonalizedEmail(firstName, extractedData, solDate, bookingLink);
+
+  const mailOptions = {
+    from: `"Richards & Law" <${process.env.GMAIL_USER}>`,
+    to: clientEmail,
+    subject: `Your Legal Representation — Richards & Law`,
+    html: emailContent,
+  };
+
+  if (retainerAttachment) {
+    mailOptions.attachments = [{
+      filename: retainerAttachment.filename,
+      content: retainerAttachment.buffer,
+      contentType: 'application/pdf',
+    }];
+    console.log('📎 Attaching retainer:', retainerAttachment.filename);
+  }
+
+  const info = await transporter.sendMail(mailOptions);
+  console.log('✅ Client email sent:', info.messageId);
+  return info;
+}
+
+/*async function generatePersonalizedEmail(firstName, extractedData, solDate, bookingLink) {
+  const axios = require('axios');
+
+  const prompt = `You are a compassionate personal injury attorney writing a warm, personalized intake email to a new client.
+
+Client first name: ${firstName}
+Accident date: ${extractedData.accidentDate}
+Accident location: ${extractedData.accidentLocation}
+Accident description: ${extractedData.accidentDescription}
+Defendant name: ${extractedData.defendantName}
+Statute of limitations date: ${solDate}
+Consultation booking link: ${bookingLink}
+
+Write a warm, human, professional email that:
+1. Opens with genuine empathy about what happened to them
+2. Briefly references their specific accident (date, location, what happened) in a compassionate way
+3. Reassures them they are in good hands
+4. Mentions the retainer agreement is attached for their review
+5. Clearly states the statute of limitations deadline with the exact date
+6. Includes the booking link as a clickable HTML anchor tag with text "Book Your Consultation" styled as: <a href="${bookingLink}" style="background:#1a3c5e; color:white; padding:10px 20px; text-decoration:none; border-radius:6px; font-weight:bold; display:inline-block; margin:10px 0;">📅 Book Your Consultation</a>
+7. Closes warmly
+
+Format as clean HTML with inline styles. Use a professional but human tone.
+The firm is Richards & Law, New York Personal Injury Attorneys.
+Do NOT include a subject line. Return only the email body HTML starting with <p>Dear ${firstName},</p>
+IMPORTANT: Include the actual booking link button HTML exactly as specified in point 6.`;
+
+  const response = await axios.post(
+    'https://api.anthropic.com/v1/messages',
+    {
+      model: 'claude-opus-4-5',
+      max_tokens: 1000,
+      messages: [{ role: 'user', content: prompt }],
+    },
+    {
+      headers: {
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+    }
+  );
+
+  const generatedBody = response.data.content[0].text.trim();
+
+  // Wrap in professional email template
+  return `
     <!DOCTYPE html>
     <html>
     <head>
       <style>
-        body { font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; }
+        body { font-family: Georgia, serif; color: #333; max-width: 600px; margin: 0 auto; }
         .header { background: #1a3c5e; color: white; padding: 24px; border-radius: 8px 8px 0 0; }
-        .content { background: #ffffff; padding: 28px; border: 1px solid #ddd; }
-        .sol-box { background: #fff3cd; border: 1px solid #ffc107; padding: 14px; border-radius: 6px; margin: 20px 0; }
-        .btn { display: inline-block; background: #1a3c5e; color: white !important;
-               padding: 14px 28px; text-decoration: none; border-radius: 6px;
-               font-size: 16px; font-weight: bold; margin: 20px 0; }
+        .content { background: #ffffff; padding: 28px; border: 1px solid #ddd; line-height: 1.7; font-size: 15px; }
         .footer { font-size: 12px; color: #888; padding: 16px; text-align: center; border-top: 1px solid #eee; }
       </style>
     </head>
     <body>
       <div class="header">
-        <h2 style="margin:0">⚖️ Richards & Law — Your Legal Representation</h2>
-        <p style="margin:6px 0 0; opacity:0.85;">Personal Injury Attorneys — New York</p>
+        <h2 style="margin:0; font-size:20px;">⚖️ Richards & Law</h2>
+        <p style="margin:6px 0 0; opacity:0.85; font-size:13px;">New York Personal Injury Attorneys</p>
       </div>
       <div class="content">
-        <p>Dear ${firstName},</p>
-
-        <p>Thank you for choosing Richards & Law to represent you. We have reviewed the details of your accident that occurred on <strong>${extractedData.accidentDate}</strong> at <strong>${extractedData.accidentLocation}</strong> and we are ready to get to work on your behalf.</p>
-
-        <p>We have prepared your Retainer Agreement which will be sent to you separately through our case management system. Please review and sign it at your earliest convenience.</p>
-
-        <div class="sol-box">
-          ⚠️ <strong>Important Legal Deadline:</strong> The Statute of Limitations for your claim is <strong>${solDate}</strong>. We must file before this date or your claim will be barred.
-        </div>
-
-        <p>To schedule your consultation with our team, please use the link below:</p>
-
-        <p style="text-align:center;">
-          <a href="${bookingLink}" class="btn">📅 Book Your Consultation</a>
-        </p>
-
-        <p>If you have any questions in the meantime, please don't hesitate to reach out.</p>
-
-        <p>Warm regards,<br/>
-        <strong>Richards & Law</strong><br/>
-        New York Personal Injury Attorneys</p>
+        ${bodyWithButton}
       </div>
       <div class="footer">
-        This email was sent regarding Matter #${matterId}. Richards &amp; Law — Internal Use Only.
+        Richards &amp; Law — 123 Broadway, New York, NY 10006 — (212) 555-0100
       </div>
     </body>
     </html>
   `;
+}*/
 
-  const info = await transporter.sendMail({
-    from: `"Richards & Law" <${process.env.GMAIL_USER}>`,
-    to: clientEmail,
-    subject: `Your Legal Representation — Richards & Law`,
-    html: htmlBody,
-  });
+async function generatePersonalizedEmail(firstName, extractedData, solDate, bookingLink) {
+  const axios = require('axios');
 
-  console.log('✅ Client email sent:', info.messageId);
-  return info;
+  const prompt = `You are a compassionate personal injury attorney writing a warm, personalized intake email to a new client.
+
+Client first name: ${firstName}
+Accident date: ${extractedData.accidentDate}
+Accident location: ${extractedData.accidentLocation}
+Accident description: ${extractedData.accidentDescription}
+Defendant name: ${extractedData.defendantName}
+Statute of limitations date: ${solDate}
+
+Write a warm, human, professional email that:
+1. Opens with genuine empathy about what happened to them
+2. Briefly references their specific accident (date, location, what happened) in a compassionate way — like a real human attorney would
+3. Reassures them they are in good hands
+4. Mentions the retainer agreement is attached for their review
+5. Do NOT mention the statute of limitations date — it will be shown separately
+6. Says they can book a consultation and to use the button below
+7. Closes warmly
+
+Format as clean HTML with inline styles. Use a warm, human, professional tone — exactly like the previous version.
+The firm is Richards & Law, New York Personal Injury Attorneys.
+Do NOT include a subject line, do NOT include any buttons or links.
+Return only the email body HTML starting with <p>Dear ${firstName},</p>`;
+
+  const response = await axios.post(
+    'https://api.anthropic.com/v1/messages',
+    {
+      model: 'claude-opus-4-5',
+      max_tokens: 1000,
+      messages: [{ role: 'user', content: prompt }],
+    },
+    {
+      headers: {
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+    }
+  );
+
+  const generatedBody = response.data.content[0].text.trim();
+
+  // Add the booking button once at the end, before the sign-off
+  const bookingButton = `
+    <div style="text-align:center; margin: 28px 0;">
+      <a href="${bookingLink}" style="background:#1a3c5e; color:white; padding:14px 28px; 
+         text-decoration:none; border-radius:6px; font-weight:bold; font-size:15px; display:inline-block;">
+        📅 Book Your Consultation
+      </a>
+    </div>
+  `;
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: Georgia, serif; color: #333; max-width: 600px; margin: 0 auto; }
+        .header { background: #1a3c5e; color: white; padding: 24px; border-radius: 8px 8px 0 0; }
+        .content { background: #ffffff; padding: 28px; border: 1px solid #ddd; line-height: 1.7; font-size: 15px; }
+        .footer { font-size: 12px; color: #888; padding: 16px; text-align: center; border-top: 1px solid #eee; }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h2 style="margin:0; font-size:20px;">⚖️ Richards & Law</h2>
+        <p style="margin:6px 0 0; opacity:0.85; font-size:13px;">New York Personal Injury Attorneys</p>
+      </div>
+      <div class="content">
+        ${generatedBody}
+        <div style="background:#fff3cd; border:1px solid #ffc107; padding:14px 18px; border-radius:6px; margin: 24px 0; font-size:14px;">
+          ⚠️ <strong>Important Legal Deadline:</strong> The Statute of Limitations for your claim is <strong>${solDate}</strong>. We must file before this date or your claim will be barred.
+        </div>
+        <div style="text-align:center; margin: 28px 0 16px;">
+          <a href="${bookingLink}" style="background:#1a3c5e; color:white; padding:14px 28px; 
+             text-decoration:none; border-radius:6px; font-weight:bold; font-size:15px; display:inline-block;">
+              Book Your Consultation
+          </a>
+        </div>
+      </div>
+      <div class="footer">
+        Richards &amp; Law — 123 Broadway, New York, NY 10006 — (212) 555-0100
+      </div>
+    </body>
+    </html>
+  `;
 }
 
 module.exports = { sendVerificationEmail, sendClientEmail };

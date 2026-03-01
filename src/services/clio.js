@@ -109,9 +109,31 @@ async function generateRetainerDocument(matterId, templateId) {
     },
   };
 
-  const res = await clioRequest('POST', '/document_automations.json', payload);
-  console.log('✅ Document automation triggered, doc ID:', res.data?.document?.id);
-  return res.data;
+  await clioRequest('POST', '/document_automations.json', payload);
+  console.log('✅ Document automation triggered');
+
+  // Wait for Clio to generate the document
+  await new Promise(resolve => setTimeout(resolve, 5000));
+
+  // Fetch the most recently created document in this matter
+  const docsRes = await clioRequest('GET', `/documents.json?fields=id,name,created_at&matter_id=${matterId}&order=created_at(desc)&limit=5`);
+  const docs = docsRes.data;
+  
+  console.log('Recent matter documents:', JSON.stringify(docs?.map(d => ({ id: d.id, name: d.name }))));
+  
+  // Find the retainer document
+  const retainerDoc = docs?.find(d => 
+    d.name?.toLowerCase().includes('retainer') || 
+    d.name?.toLowerCase().includes('agreement')
+  ) || docs?.[0];
+
+  if (retainerDoc) {
+    console.log('✅ Retainer document found, ID:', retainerDoc.id);
+    return { document: { id: retainerDoc.id, name: retainerDoc.name } };
+  }
+
+  console.warn('⚠️ Could not find retainer document after automation');
+  return { document: null };
 }
 
 // ── Get document templates ─────────────────────────
@@ -156,13 +178,34 @@ async function createCalendarEntry(matterId, responsibleAttorneyId, solDate, cli
   return null;
 }
 
-// ── Get a document's download URL ─────────────────
-async function getDocumentDownloadUrl(documentId) {
-  const res = await clioRequest('GET', `/documents/${documentId}.json?fields=id,name,latest_document_version{uuid,put_url,filename}`);
-  return res.data;
+async function downloadDocument(documentId) {
+  const token = await getValidAccessToken();
+  
+  // Get the download URL
+  const res = await clioRequest('GET', `/documents/${documentId}.json?fields=id,name,latest_document_version{uuid}`);
+  const uuid = res.data?.latest_document_version?.uuid;
+  
+  if (!uuid) {
+    console.warn('⚠️ No document version UUID found');
+    return null;
+  }
+
+  // Download the actual file
+  const downloadRes = await axios.get(
+    `${CLIO_API}/documents/${documentId}/download`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      responseType: 'arraybuffer',
+    }
+  );
+
+  return {
+    buffer: Buffer.from(downloadRes.data),
+    filename: res.data.name || 'Retainer_Agreement.pdf',
+  };
 }
 
-// ── Send email via Clio Communications ────────────
+// ── Send email to Client ────────────
 async function sendClioEmail(matterId, contactId, subject, body, documentId = null) {
   const payload = {
     data: {
@@ -183,8 +226,6 @@ async function sendClioEmail(matterId, contactId, subject, body, documentId = nu
   console.log('✅ Clio email sent to client');
   return res.data;
 }
-
-
 
 // ── Upload a file (e.g. police report PDF) to a Matter ──
 async function uploadDocumentToMatter(matterId, filePath, fileName) {
@@ -242,7 +283,7 @@ module.exports = {
   generateRetainerDocument,
   getDocumentTemplates,
   createCalendarEntry,
-  getDocumentDownloadUrl,
+  downloadDocument,
   sendClioEmail,
   uploadDocumentToMatter,
 };
