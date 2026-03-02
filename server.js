@@ -401,7 +401,7 @@ app.get('/debug/matter/:id', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────
-app.listen(PORT, '127.0.0.1', () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🚀 Richards & Law Automation running at http://127.0.0.1:${PORT}`);
   console.log(`   → Connect Clio: http://127.0.0.1:${PORT}/auth/clio`);
   console.log(`   → Upload PDF:   http://127.0.0.1:${PORT}\n`);
