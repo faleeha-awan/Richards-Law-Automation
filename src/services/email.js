@@ -1,27 +1,42 @@
-const nodemailer = require('nodemailer');
-const { formatDateForDisplay } = require('../utils/helpers');
+const axios = require('axios');
 
-function createTransporter() {
-  return nodemailer.createTransport({
-    host: 'smtp-relay.brevo.com',
-    port: 465,
-    auth: {
-      user: process.env.BREVO_USER,  // your Brevo account email
-      pass: process.env.BREVO_SMTP_KEY, // Brevo SMTP key
+const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
+
+async function sendEmail(to, subject, html, attachments = []) {
+  const payload = {
+    sender: { name: 'Richards & Law', email: 'falihaawan310@gmail.com' },
+    to: [{ email: to }],
+    subject,
+    htmlContent: html,
+  };
+
+  if (attachments.length > 0) {
+    payload.attachment = attachments.map(a => ({
+      name: a.filename,
+      content: Buffer.isBuffer(a.content) ? a.content.toString('base64') : a.content,
+    }));
+  }
+
+  const { data } = await axios.post(BREVO_API_URL, payload, {
+    headers: {
+      'api-key': process.env.BREVO_API_KEY,
+      'content-type': 'application/json',
     },
   });
+
+  return data;
 }
 
-//Email to Paralegal for verification of client details
+// ── Verification email to paralegal ──────────────────────────────────────────
 async function sendVerificationEmail(extractedData, verificationToken, matterId) {
-  const transporter = createTransporter();
-
   const verifyUrl = `${process.env.BASE_URL}/verify/${verificationToken}`;
   const accidentDateDisplay = extractedData.accidentDate || 'Unknown Date';
   const clientName = `${extractedData.clientFirstName} ${extractedData.clientLastName}`;
   const defendantName = extractedData.defendantName || 'Not found';
 
-  const htmlBody = `
+  const subject = `[ACTION REQUIRED] Verify Police Report — ${clientName} (${accidentDateDisplay})`;
+
+  const html = `
     <!DOCTYPE html>
     <html>
     <head>
@@ -34,11 +49,7 @@ async function sendVerificationEmail(extractedData, verificationToken, matterId)
         .field-table td { padding: 10px 8px; }
         .field-table td:first-child { font-weight: bold; color: #555; width: 40%; }
         .field-table td:last-child { color: #111; }
-        .btn { display: inline-block; background: #1a3c5e; color: white !important;
-               padding: 14px 28px; text-decoration: none; border-radius: 6px;
-               font-size: 16px; font-weight: bold; margin: 20px 0; }
-        .warning { background: #fff3cd; border: 1px solid #ffc107;
-                   padding: 12px; border-radius: 4px; margin: 12px 0; font-size: 14px; }
+        .warning { background: #fff3cd; border: 1px solid #ffc107; padding: 12px; border-radius: 4px; margin: 12px 0; font-size: 14px; }
         .footer { font-size: 12px; color: #888; padding: 16px; text-align: center; }
       </style>
     </head>
@@ -49,14 +60,11 @@ async function sendVerificationEmail(extractedData, verificationToken, matterId)
       </div>
       <div class="content">
         <p>A police report PDF has been processed. Please review the extracted data below and confirm before it is written to Clio Manage.</p>
-
         <div class="warning">
           ⚠️ <strong>Action Required:</strong> This data has NOT been saved to Clio yet.
           Click the button below to review, edit if needed, and approve.
         </div>
-
         <h3 style="color:#1a3c5e;">Extracted Information</h3>
-
         <table class="field-table">
           <tr><td>Client Name</td><td>${clientName}</td></tr>
           <tr><td>Accident Date</td><td>${accidentDateDisplay}</td></tr>
@@ -67,142 +75,30 @@ async function sendVerificationEmail(extractedData, verificationToken, matterId)
           <tr><td>Report Number</td><td>${extractedData.accidentReportNumber || 'Not found'}</td></tr>
           <tr><td>Accident Description</td><td>${extractedData.accidentDescription || 'Not found'}</td></tr>
         </table>
-
         <p style="text-align:center;">
-          <a href="${verifyUrl}" class="btn">Review &amp; Approve →</a>
+          <a href="${verifyUrl}"
+             style="background:#1a3c5e; color:white; padding:14px 28px; text-decoration:none;
+                    border-radius:6px; font-size:16px; font-weight:bold; display:inline-block; margin:20px 0;">
+            Review &amp; Approve →
+          </a>
         </p>
-
-        <!--<p style="margin-top:12px; font-size:13px; color:#666;">
+        <p style="margin-top:12px; font-size:13px; color:#666;">
           Or copy this link into your browser:<br/>
           <strong style="color:#1a3c5e; word-break:break-all;">${verifyUrl}</strong>
-        </p>-->
-
-        <p style="font-size:13px; color:#666;">
-          This link expires in 24 hours. &nbsp;|&nbsp; Matter ID: ${matterId}
         </p>
+        <p style="font-size:13px; color:#666;">This link expires in 24 hours. &nbsp;|&nbsp; Matter ID: ${matterId}</p>
       </div>
-      <div class="footer">
-        Richards &amp; Law Automation System — Internal Use Only
-      </div>
+      <div class="footer">Richards &amp; Law Automation System — Internal Use Only</div>
     </body>
     </html>
   `;
 
-  const info = await transporter.sendMail({
-    from: `"Richards & Law Automation" <${process.env.GMAIL_USER}>`,
-    to: process.env.PARALEGAL_EMAIL,
-    subject: `[ACTION REQUIRED] Verify Police Report — ${clientName} (${accidentDateDisplay})`,
-    html: htmlBody,
-  });
-
-  console.log('✅ Verification email sent:', info.messageId);
-  return info;
+  await sendEmail(process.env.PARALEGAL_EMAIL, subject, html);
+  console.log('✅ Verification email sent via Brevo');
 }
 
-//Email to the client with retainer agreement + booking link
-async function sendClientEmail(clientEmail, clientName, extractedData, solDate, bookingLink, matterId, retainerAttachment) {
-  const transporter = createTransporter();
-  const firstName = clientName.split(' ')[0];
-
-  const emailContent = await generatePersonalizedEmail(firstName, extractedData, solDate, bookingLink);
-
-  const mailOptions = {
-    from: `"Richards & Law" <${process.env.GMAIL_USER}>`,
-    to: clientEmail,
-    subject: `Your Legal Representation — Richards & Law`,
-    html: emailContent,
-  };
-
-  if (retainerAttachment) {
-    mailOptions.attachments = [{
-      filename: retainerAttachment.filename,
-      content: retainerAttachment.buffer,
-      contentType: 'application/pdf',
-    }];
-    console.log('📎 Attaching retainer:', retainerAttachment.filename);
-  }
-
-  const info = await transporter.sendMail(mailOptions);
-  console.log('✅ Client email sent:', info.messageId);
-  return info;
-}
-
-/*async function generatePersonalizedEmail(firstName, extractedData, solDate, bookingLink) {
-  const axios = require('axios');
-
-  const prompt = `You are a compassionate personal injury attorney writing a warm, personalized intake email to a new client.
-
-Client first name: ${firstName}
-Accident date: ${extractedData.accidentDate}
-Accident location: ${extractedData.accidentLocation}
-Accident description: ${extractedData.accidentDescription}
-Defendant name: ${extractedData.defendantName}
-Statute of limitations date: ${solDate}
-Consultation booking link: ${bookingLink}
-
-Write a warm, human, professional email that:
-1. Opens with genuine empathy about what happened to them
-2. Briefly references their specific accident (date, location, what happened) in a compassionate way
-3. Reassures them they are in good hands
-4. Mentions the retainer agreement is attached for their review
-5. Clearly states the statute of limitations deadline with the exact date
-6. Includes the booking link as a clickable HTML anchor tag with text "Book Your Consultation" styled as: <a href="${bookingLink}" style="background:#1a3c5e; color:white; padding:10px 20px; text-decoration:none; border-radius:6px; font-weight:bold; display:inline-block; margin:10px 0;">📅 Book Your Consultation</a>
-7. Closes warmly
-
-Format as clean HTML with inline styles. Use a professional but human tone.
-The firm is Richards & Law, New York Personal Injury Attorneys.
-Do NOT include a subject line. Return only the email body HTML starting with <p>Dear ${firstName},</p>
-IMPORTANT: Include the actual booking link button HTML exactly as specified in point 6.`;
-
-  const response = await axios.post(
-    'https://api.anthropic.com/v1/messages',
-    {
-      model: 'claude-opus-4-5',
-      max_tokens: 1000,
-      messages: [{ role: 'user', content: prompt }],
-    },
-    {
-      headers: {
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-    }
-  );
-
-  const generatedBody = response.data.content[0].text.trim();
-
-  // Wrap in professional email template
-  return `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <style>
-        body { font-family: Georgia, serif; color: #333; max-width: 600px; margin: 0 auto; }
-        .header { background: #1a3c5e; color: white; padding: 24px; border-radius: 8px 8px 0 0; }
-        .content { background: #ffffff; padding: 28px; border: 1px solid #ddd; line-height: 1.7; font-size: 15px; }
-        .footer { font-size: 12px; color: #888; padding: 16px; text-align: center; border-top: 1px solid #eee; }
-      </style>
-    </head>
-    <body>
-      <div class="header">
-        <h2 style="margin:0; font-size:20px;">⚖️ Richards & Law</h2>
-        <p style="margin:6px 0 0; opacity:0.85; font-size:13px;">New York Personal Injury Attorneys</p>
-      </div>
-      <div class="content">
-        ${bodyWithButton}
-      </div>
-      <div class="footer">
-        Richards &amp; Law — 123 Broadway, New York, NY 10006 — (212) 555-0100
-      </div>
-    </body>
-    </html>
-  `;
-}*/
-
+// ── Personalized client email generated by Claude ────────────────────────────
 async function generatePersonalizedEmail(firstName, extractedData, solDate, bookingLink) {
-  const axios = require('axios');
-
   const prompt = `You are a compassionate personal injury attorney writing a warm, personalized intake email to a new client.
 
 Client first name: ${firstName}
@@ -210,7 +106,6 @@ Accident date: ${extractedData.accidentDate}
 Accident location: ${extractedData.accidentLocation}
 Accident description: ${extractedData.accidentDescription}
 Defendant name: ${extractedData.defendantName}
-Statute of limitations date: ${solDate}
 
 Write a warm, human, professional email that:
 1. Opens with genuine empathy about what happened to them
@@ -218,10 +113,10 @@ Write a warm, human, professional email that:
 3. Reassures them they are in good hands
 4. Mentions the retainer agreement is attached for their review
 5. Do NOT mention the statute of limitations date — it will be shown separately
-6. Says they can book a consultation and to use the button below
+6. Says they can book a consultation using the button below
 7. Closes warmly
 
-Format as clean HTML with inline styles. Use a warm, human, professional tone — exactly like the previous version.
+Format as clean HTML with inline styles. Use a warm, human, professional tone.
 The firm is Richards & Law, New York Personal Injury Attorneys.
 Do NOT include a subject line, do NOT include any buttons or links.
 Return only the email body HTML starting with <p>Dear ${firstName},</p>`;
@@ -229,7 +124,7 @@ Return only the email body HTML starting with <p>Dear ${firstName},</p>`;
   const response = await axios.post(
     'https://api.anthropic.com/v1/messages',
     {
-      model: 'claude-opus-4-5',
+      model: 'claude-sonnet-4-20250514',
       max_tokens: 1000,
       messages: [{ role: 'user', content: prompt }],
     },
@@ -243,16 +138,6 @@ Return only the email body HTML starting with <p>Dear ${firstName},</p>`;
   );
 
   const generatedBody = response.data.content[0].text.trim();
-
-  // Add the booking button once at the end, before the sign-off
-  const bookingButton = `
-    <div style="text-align:center; margin: 28px 0;">
-      <a href="${bookingLink}" style="background:#1a3c5e; color:white; padding:14px 28px; 
-         text-decoration:none; border-radius:6px; font-weight:bold; font-size:15px; display:inline-block;">
-        📅 Book Your Consultation
-      </a>
-    </div>
-  `;
 
   return `
     <!DOCTYPE html>
@@ -272,13 +157,14 @@ Return only the email body HTML starting with <p>Dear ${firstName},</p>`;
       </div>
       <div class="content">
         ${generatedBody}
-        <div style="background:#fff3cd; border:1px solid #ffc107; padding:14px 18px; border-radius:6px; margin: 24px 0; font-size:14px;">
+        <div style="background:#fff3cd; border:1px solid #ffc107; padding:14px 18px; border-radius:6px; margin:24px 0; font-size:14px;">
           ⚠️ <strong>Important Legal Deadline:</strong> The Statute of Limitations for your claim is <strong>${solDate}</strong>. We must file before this date or your claim will be barred.
         </div>
-        <div style="text-align:center; margin: 28px 0 16px;">
-          <a href="${bookingLink}" style="background:#1a3c5e; color:white; padding:14px 28px; 
-             text-decoration:none; border-radius:6px; font-weight:bold; font-size:15px; display:inline-block;">
-              Book Your Consultation
+        <div style="text-align:center; margin:28px 0 16px;">
+          <a href="${bookingLink}"
+             style="background:#1a3c5e; color:white; padding:14px 28px; text-decoration:none;
+                    border-radius:6px; font-weight:bold; font-size:15px; display:inline-block;">
+            📅 Book Your Consultation
           </a>
         </div>
       </div>
@@ -288,6 +174,29 @@ Return only the email body HTML starting with <p>Dear ${firstName},</p>`;
     </body>
     </html>
   `;
+}
+
+// ── Client email with retainer attached ──────────────────────────────────────
+async function sendClientEmail(clientEmail, clientName, extractedData, solDate, bookingLink, matterId, retainerAttachment) {
+  const firstName = clientName.split(' ')[0];
+  const emailContent = await generatePersonalizedEmail(firstName, extractedData, solDate, bookingLink);
+
+  const attachments = retainerAttachment ? [{
+    filename: retainerAttachment.filename,
+    content: retainerAttachment.buffer,
+  }] : [];
+
+  if (retainerAttachment) {
+    console.log('📎 Attaching retainer:', retainerAttachment.filename);
+  }
+
+  await sendEmail(
+    clientEmail,
+    `Your Legal Representation — Richards & Law`,
+    emailContent,
+    attachments
+  );
+  console.log('✅ Client email sent via Brevo');
 }
 
 module.exports = { sendVerificationEmail, sendClientEmail };
