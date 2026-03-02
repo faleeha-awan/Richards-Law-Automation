@@ -1,5 +1,6 @@
 const axios = require('axios');
-const MailerSend = require('mailersend');
+// Correct import for mailersend
+const { MailerSend } = require('mailersend');
 
 // Initialize MailerSend
 const mailerSend = new MailerSend({
