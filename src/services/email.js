@@ -6,7 +6,7 @@ async function sendEmail(to, subject, html, attachments = []) {
   // For test domains, use these settings:
   const transporter = nodemailer.createTransport({
     host: 'smtp.mailersend.net',
-    port: 587,
+    port: 465,
     secure: false,
     auth: {
      user: process.env.MAILERSEND_SMTP_USER,
