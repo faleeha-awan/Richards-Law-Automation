@@ -102,7 +102,7 @@
 
 <div class="container">
   <div id="loadingState" class="loading-state">
-    <div style="font-size:32px;margin-bottom:12px;">⏳</div>
+    <div style="font-size:32px;margin-bottom:12px;">
     Loading extracted data...
   </div>
 
@@ -117,7 +117,7 @@
 
     <!-- Client Info -->
     <div class="card">
-      <div class="card-header"><h2>👤 Client Information</h2></div>
+      <div class="card-header"><h2> Client Information</h2></div>
       <div class="card-body">
         <div class="field-grid">
           <div class="form-group">
@@ -145,7 +145,7 @@
 
     <!-- Accident Info -->
     <div class="card">
-      <div class="card-header"><h2>🚗 Accident Details</h2></div>
+      <div class="card-header"><h2> Accident Details</h2></div>
       <div class="card-body">
         <div class="field-grid">
           <div class="form-group">
@@ -174,7 +174,7 @@
 
     <!-- Defendant Info -->
     <div class="card">
-      <div class="card-header"><h2>⚖️ Defendant Information</h2></div>
+      <div class="card-header"><h2> Defendant Information</h2></div>
       <div class="card-body">
         <div class="field-grid">
           <div class="form-group">
@@ -195,7 +195,7 @@
 
     <!-- Derived Fields (read-only) -->
     <div class="card">
-      <div class="card-header"><h2>📅 Auto-Calculated Fields</h2></div>
+      <div class="card-header"><h2> Auto-Calculated Fields</h2></div>
       <div class="card-body">
         <div class="field-grid">
           <div class="form-group">
@@ -213,7 +213,7 @@
     <div class="btn-row">
       <button class="btn btn-cancel" onclick="window.close()">Cancel</button>
       <button class="btn btn-approve" id="approveBtn" onclick="approve()">
-        ✅ Approve &amp; Save to Clio
+         Approve &amp; Save to Clio
       </button>
     </div>
 
@@ -268,7 +268,7 @@
 
     } catch (err) {
       document.getElementById('loadingState').innerHTML =
-        `<div style="color:#c0392b">❌ Failed to load data: ${err.message}</div>`;
+        `<div style="color:#c0392b"> Failed to load data: ${err.message}</div>`;
     }
   }
 
@@ -320,19 +320,19 @@
       if (data.success) {
         statusBox.className = 'status-box success';
         statusBox.innerHTML = `
-          ✅ <strong>All done!</strong><br/><br/>
+           <strong>All done!</strong><br/><br/>
           • Matter custom fields updated in Clio<br/>
           • Retainer Agreement generated &amp; stored in Clio<br/>
           • Statute of Limitations calendared for the attorney<br/>
           • Personalized email sent to the client with retainer attached
         `;
-        btn.textContent = '✅ Completed';
+        btn.textContent = ' Completed';
       } else {
         throw new Error(data.error || 'Unknown error');
       }
     } catch (err) {
       statusBox.className = 'status-box error';
-      statusBox.innerHTML = `❌ <strong>Error:</strong> ${err.message}`;
+      statusBox.innerHTML = ` <strong>Error:</strong> ${err.message}`;
       btn.disabled = false;
     }
   }

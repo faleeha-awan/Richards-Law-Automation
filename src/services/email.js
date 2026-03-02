@@ -163,7 +163,7 @@ Return only the email body HTML starting with <p>Dear ${firstName},</p>`;
           <a href="${bookingLink}"
              style="background:#1a3c5e; color:white; padding:14px 28px; text-decoration:none;
                     border-radius:6px; font-weight:bold; font-size:15px; display:inline-block;">
-            📅 Book Your Consultation
+             Book Your Consultation
           </a>
         </div>
       </div>
