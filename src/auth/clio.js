@@ -1,14 +1,31 @@
 const axios = require('axios');
+const fs = require('fs');
 
 const CLIO_BASE = 'https://eu.app.clio.com';
 const TOKEN_URL = `${CLIO_BASE}/oauth/token`;
 const AUTH_URL  = `${CLIO_BASE}/oauth/authorize`;
+const TOKEN_FILE = '/tmp/clio_tokens.json';
 
-let tokenStore = {
-  access_token: null,
-  refresh_token: null,
-  expires_at: null,
-};
+function saveTokens(data) {
+  const tokens = {
+    access_token:  data.access_token,
+    refresh_token: data.refresh_token,
+    expires_at:    Date.now() + (data.expires_in * 1000),
+  };
+  fs.writeFileSync(TOKEN_FILE, JSON.stringify(tokens));
+  console.log('✅ Clio tokens saved successfully');
+}
+
+function getTokens() {
+  try {
+    if (fs.existsSync(TOKEN_FILE)) {
+      return JSON.parse(fs.readFileSync(TOKEN_FILE, 'utf8'));
+    }
+  } catch (e) {
+    console.error('Error reading token file:', e.message);
+  }
+  return null;
+}
 
 function getAuthorizationUrl() {
   const params = new URLSearchParams({
@@ -29,8 +46,7 @@ async function exchangeCodeForTokens(code) {
       redirect_uri: process.env.CLIO_REDIRECT_URI,
     });
 
-    const bodyString = params.toString();
-    console.log('FULL REQUEST BODY:', bodyString);
+    console.log('FULL REQUEST BODY:', params.toString());
 
     const response = await axios.post(TOKEN_URL, params.toString(), {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -45,9 +61,14 @@ async function exchangeCodeForTokens(code) {
 }
 
 async function refreshAccessToken() {
+  const tokens = getTokens();
+  if (!tokens?.refresh_token) {
+    throw new Error('No refresh token available.');
+  }
+
   const params = new URLSearchParams({
     grant_type: 'refresh_token',
-    refresh_token: tokenStore.refresh_token,
+    refresh_token: tokens.refresh_token,
   });
 
   const credentials = Buffer.from(
@@ -66,26 +87,22 @@ async function refreshAccessToken() {
 }
 
 async function getValidAccessToken() {
-  if (!tokenStore.access_token) {
+  const tokens = getTokens();
+  if (!tokens?.access_token) {
     throw new Error('Not authenticated with Clio. Please visit /auth/clio to connect.');
   }
   const now = Date.now();
-  if (tokenStore.expires_at && now >= tokenStore.expires_at - 60000) {
+  if (tokens.expires_at && now >= tokens.expires_at - 60000) {
     console.log('Access token expiring soon, refreshing...');
     await refreshAccessToken();
+    return getTokens().access_token;
   }
-  return tokenStore.access_token;
-}
-
-function saveTokens(data) {
-  tokenStore.access_token  = data.access_token;
-  tokenStore.refresh_token = data.refresh_token;
-  tokenStore.expires_at    = Date.now() + (data.expires_in * 1000);
-  console.log('✅ Clio tokens saved successfully');
+  return tokens.access_token;
 }
 
 function isAuthenticated() {
-  return !!tokenStore.access_token;
+  const tokens = getTokens();
+  return !!(tokens?.access_token);
 }
 
 module.exports = {
