@@ -3,10 +3,11 @@ const { formatDateForDisplay } = require('../utils/helpers');
 
 function createTransporter() {
   return nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp-relay.brevo.com',
+    port: 587,
     auth: {
-      user: process.env.GMAIL_USER,
-      pass: process.env.GMAIL_APP_PASSWORD,
+      user: process.env.BREVO_USER,  // your Brevo account email
+      pass: process.env.BREVO_SMTP_KEY, // Brevo SMTP key
     },
   });
 }
