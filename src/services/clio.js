@@ -17,6 +17,7 @@ const CLIO_API = 'https://eu.app.clio.com/api/v4';
 // Helper: authenticated axios instance
 async function clioRequest(method, endpoint, data = null) {
   const token = await getValidAccessToken();
+  console.log(`Clio request: ${method} ${endpoint}`);
   console.log('Token being used:', token ? token.substring(0, 20) + '...' : 'UNDEFINED');
   const config = {
     method,
