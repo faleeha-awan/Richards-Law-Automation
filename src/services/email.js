@@ -4,7 +4,7 @@ const { formatDateForDisplay } = require('../utils/helpers');
 function createTransporter() {
   return nodemailer.createTransport({
     host: 'smtp-relay.brevo.com',
-    port: 587,
+    port: 465,
     auth: {
       user: process.env.BREVO_USER,  // your Brevo account email
       pass: process.env.BREVO_SMTP_KEY, // Brevo SMTP key
