@@ -8,7 +8,7 @@ function getSeasonalBookingLink() {
   const isInOfficeSeason = month >= 3 && month <= 8;
 
   return isInOfficeSeason
-    ? process.env.BOOKING_LINK_IN_OFFICE
+    ? process.env.BOOKING_LINK_INOFFICE
     : process.env.BOOKING_LINK_VIRTUAL;
 }
 
